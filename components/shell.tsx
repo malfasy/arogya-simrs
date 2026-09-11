@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Sidebar, type ModuleDef } from '@/components/sidebar'
 import { useStore } from '@/components/store'
 import { Button } from '@/components/ui/button'
 import type { DemoAccount } from '@/lib/data'
+import type { Role } from '@/lib/types'
 import { DashboardModule } from '@/components/modules/dashboard'
 import { RegistrationModule } from '@/components/modules/registration'
 import { VisitsModule } from '@/components/modules/visits'
@@ -12,11 +13,13 @@ import { PoliklinikModule } from '@/components/modules/poliklinik'
 import { PharmacyModule } from '@/components/modules/pharmacy'
 import { CashierModule } from '@/components/modules/cashier'
 import { SatuSehatModule } from '@/components/modules/satu-sehat'
+import { PenunjangModule } from '@/components/modules/penunjang'
 import {
   Activity,
   ClipboardPlus,
-  LogOut,
+  FlaskConical,
   LayoutDashboard,
+  LogOut,
   Pill,
   ShieldCheck,
   Stethoscope,
@@ -29,32 +32,44 @@ const META: Record<string, { title: string; subtitle: string }> = {
   registrasi: { title: 'Registrasi', subtitle: 'Pendaftaran & data pasien' },
   kunjungan: { title: 'Kunjungan', subtitle: 'Pembuatan encounter rawat jalan' },
   poliklinik: { title: 'Poliklinik', subtitle: 'Pemeriksaan dokter, diagnosis & resep' },
+  penunjang: { title: 'Penunjang', subtitle: 'Laboratorium & radiologi' },
   farmasi: { title: 'Farmasi', subtitle: 'Penyerahan obat & stok' },
   kasir: { title: 'Kasir', subtitle: 'Pembayaran & penyelesaian kunjungan' },
   satusehat: { title: 'Satu Sehat', subtitle: 'Integrasi FHIR R4 (mock Kemenkes)' },
 }
 
-export function Shell({ user, onLogout }: { user: DemoAccount; onLogout: () => void }) {
-  const { doctorQueue, pharmacyQueue, cashierQueue } = useStore()
-  const [active, setActive] = useState('dashboard')
+// Modul apa saja yang boleh diakses tiap peran (role-based access).
+const ACCESS: Record<Role, string[]> = {
+  admin: ['dashboard', 'registrasi', 'kunjungan', 'poliklinik', 'penunjang', 'farmasi', 'kasir', 'satusehat'],
+  dokter: ['dashboard', 'kunjungan', 'poliklinik', 'penunjang', 'satusehat'],
+  farmasi: ['dashboard', 'farmasi', 'satusehat'],
+  kasir: ['dashboard', 'kasir', 'satusehat'],
+}
 
-  const modules: ModuleDef[] = [
+export function Shell({ user, onLogout }: { user: DemoAccount; onLogout: () => void }) {
+  const { doctorQueue, pharmacyQueue, cashierQueue, labQueue } = useStore()
+
+  const allowed = ACCESS[user.roleKey]
+  const [active, setActive] = useState(allowed[0] ?? 'dashboard')
+
+  // Kalau peran berganti, pastikan modul aktif tetap yang diizinkan.
+  useEffect(() => {
+    if (!allowed.includes(active)) setActive(allowed[0] ?? 'dashboard')
+  }, [allowed, active])
+
+  const allModules: ModuleDef[] = [
     { key: 'dashboard', label: 'Dashboard', sublabel: '', icon: LayoutDashboard },
     { key: 'registrasi', label: 'Registrasi', sublabel: '', icon: UserPlus },
     { key: 'kunjungan', label: 'Kunjungan', sublabel: '', icon: ClipboardPlus },
-    {
-      key: 'poliklinik',
-      label: 'Poliklinik',
-      sublabel: '',
-      icon: Stethoscope,
-      badge: doctorQueue.length,
-    },
+    { key: 'poliklinik', label: 'Poliklinik', sublabel: '', icon: Stethoscope, badge: doctorQueue.length },
+    { key: 'penunjang', label: 'Penunjang', sublabel: '', icon: FlaskConical, badge: labQueue.length },
     { key: 'farmasi', label: 'Farmasi', sublabel: '', icon: Pill, badge: pharmacyQueue.length },
     { key: 'kasir', label: 'Kasir', sublabel: '', icon: Wallet, badge: cashierQueue.length },
     { key: 'satusehat', label: 'Satu Sehat', sublabel: '', icon: ShieldCheck },
   ]
 
-  const meta = META[active]
+  const modules = allModules.filter((m) => allowed.includes(m.key))
+  const meta = META[active] ?? META.dashboard
 
   return (
     <div className="flex h-dvh overflow-hidden">
@@ -84,6 +99,7 @@ export function Shell({ user, onLogout }: { user: DemoAccount; onLogout: () => v
           {active === 'registrasi' && <RegistrationModule />}
           {active === 'kunjungan' && <VisitsModule />}
           {active === 'poliklinik' && <PoliklinikModule />}
+          {active === 'penunjang' && <PenunjangModule />}
           {active === 'farmasi' && <PharmacyModule />}
           {active === 'kasir' && <CashierModule />}
           {active === 'satusehat' && <SatuSehatModule />}

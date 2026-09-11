@@ -15,9 +15,12 @@ import type {
   FhirLog,
   FhirResourceType,
   Gender,
+  LabOrder,
+  LabTestDef,
   Patient,
   PrescriptionItem,
   Visit,
+  Vitals,
 } from '@/lib/types'
 import { CONSULTATION_FEE, INITIAL_DRUGS } from '@/lib/data'
 import { generateMrn, uid } from '@/lib/format'
@@ -25,6 +28,7 @@ import {
   buildConditionResource,
   buildEncounterResource,
   buildPatientResource,
+  buildServiceRequestResource,
   isTokenValid,
   postResource,
   requestOAuthToken,
@@ -40,6 +44,14 @@ export interface NewPatientInput {
   phone: string
 }
 
+export interface ExamInput {
+  diagnosis: Diagnosis
+  vitals: Vitals
+  clinicalNotes: string
+  prescription: PrescriptionItem[]
+  labTests: LabTestDef[]
+}
+
 interface StoreValue {
   patients: Patient[]
   visits: Visit[]
@@ -51,6 +63,7 @@ interface StoreValue {
   doctorQueue: Visit[]
   pharmacyQueue: Visit[]
   cashierQueue: Visit[]
+  labQueue: Visit[]
 
   // derived
   getPatient: (id: string) => Patient | undefined
@@ -59,11 +72,8 @@ interface StoreValue {
   // actions
   registerPatient: (input: NewPatientInput) => Promise<Patient>
   createVisit: (patientId: string, complaint: string) => Promise<void>
-  examinePatient: (
-    visitId: string,
-    diagnosis: Diagnosis,
-    prescription: PrescriptionItem[],
-  ) => Promise<void>
+  examinePatient: (visitId: string, input: ExamInput) => Promise<void>
+  completeLabOrder: (visitId: string, orderId: string, result: string) => void
   dispenseMedicine: (visitId: string) => void
   receivePayment: (visitId: string) => void
 }
@@ -179,6 +189,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         complaint,
         stage: 'doctor',
         encounterId: assignedId,
+        labOrders: [],
         prescription: [],
         consultationFee: CONSULTATION_FEE,
         createdAt: Date.now(),
@@ -189,43 +200,99 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const examinePatient = useCallback(
-    async (
-      visitId: string,
-      diagnosis: Diagnosis,
-      prescription: PrescriptionItem[],
-    ): Promise<void> => {
+    async (visitId: string, input: ExamInput): Promise<void> => {
       const visit = visits.find((v) => v.id === visitId)
       if (!visit) return
       const patient = patients.find((p) => p.id === visit.patientId)
       if (!patient) return
 
       await ensureToken()
-      const resource = buildConditionResource({
+
+      // 1) Condition (diagnosis)
+      const conditionResource = buildConditionResource({
         patientSatuSehatId: patient.satuSehatId ?? patient.id,
         patientName: patient.name,
         encounterId: visit.encounterId ?? '',
-        diagnosis,
+        diagnosis: input.diagnosis,
       })
-      const { endpoint, response, assignedId } = await postResource('Condition', resource)
+      const cond = await postResource('Condition', conditionResource)
       addLog({
         resourceType: 'Condition',
         method: 'POST',
-        endpoint,
+        endpoint: cond.endpoint,
         status: 201,
-        request: resource,
-        response,
+        request: conditionResource,
+        response: cond.response,
       })
+
+      // 2) One ServiceRequest per ordered lab/radiology test
+      const labOrders: LabOrder[] = []
+      for (const test of input.labTests) {
+        const order: LabOrder = {
+          id: uid('ord'),
+          testId: test.id,
+          name: test.name,
+          category: test.category,
+          price: test.price,
+          loincCode: test.loincCode,
+          status: 'requested',
+          createdAt: Date.now(),
+        }
+        const srResource = buildServiceRequestResource({
+          patientSatuSehatId: patient.satuSehatId ?? patient.id,
+          patientName: patient.name,
+          encounterId: visit.encounterId ?? '',
+          order,
+        })
+        const sr = await postResource('ServiceRequest', srResource)
+        order.serviceRequestId = sr.assignedId
+        addLog({
+          resourceType: 'ServiceRequest',
+          method: 'POST',
+          endpoint: sr.endpoint,
+          status: 201,
+          request: srResource,
+          response: sr.response,
+        })
+        labOrders.push(order)
+      }
 
       setVisits((prev) =>
         prev.map((v) =>
           v.id === visitId
-            ? { ...v, diagnosis, prescription, conditionId: assignedId, stage: 'pharmacy' }
+            ? {
+                ...v,
+                diagnosis: input.diagnosis,
+                vitals: input.vitals,
+                clinicalNotes: input.clinicalNotes,
+                prescription: input.prescription,
+                labOrders,
+                conditionId: cond.assignedId,
+                stage: 'pharmacy',
+              }
             : v,
         ),
       )
     },
     [addLog, ensureToken, patients, visits],
   )
+
+  const completeLabOrder = useCallback((visitId: string, orderId: string, result: string) => {
+    setVisits((prev) =>
+      prev.map((v) =>
+        v.id === visitId
+          ? {
+              ...v,
+              labOrders: v.labOrders.map((o) =>
+                o.id === orderId
+                  ? { ...o, status: 'completed', result, completedAt: Date.now() }
+                  : o,
+              ),
+            }
+          : v,
+      ),
+    )
+  }, [])
 
   const dispenseMedicine = useCallback((visitId: string) => {
     setVisits((prevVisits) => {
@@ -255,13 +322,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const doctorQueue = visits.filter((v) => v.stage === 'doctor')
     const pharmacyQueue = visits.filter((v) => v.stage === 'pharmacy')
     const cashierQueue = visits.filter((v) => v.stage === 'cashier')
+    const labQueue = visits.filter((v) =>
+      v.labOrders.some((o) => o.status === 'requested'),
+    )
     const revenue = visits
       .filter((v) => v.stage === 'complete')
       .reduce(
         (sum, v) =>
           sum +
           v.consultationFee +
-          v.prescription.reduce((s, p) => s + p.price * p.quantity, 0),
+          v.prescription.reduce((s, p) => s + p.price * p.quantity, 0) +
+          v.labOrders.reduce((s, o) => s + o.price, 0),
         0,
       )
     return {
@@ -273,11 +344,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       doctorQueue,
       pharmacyQueue,
       cashierQueue,
+      labQueue,
       getPatient: (id: string) => patients.find((p) => p.id === id),
       revenue,
       registerPatient,
       createVisit,
       examinePatient,
+      completeLabOrder,
       dispenseMedicine,
       receivePayment,
     }
@@ -290,6 +363,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     registerPatient,
     createVisit,
     examinePatient,
+    completeLabOrder,
     dispenseMedicine,
     receivePayment,
   ])

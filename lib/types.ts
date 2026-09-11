@@ -1,5 +1,7 @@
 export type Gender = 'male' | 'female'
 
+export type Role = 'admin' | 'dokter' | 'farmasi' | 'kasir'
+
 export interface Patient {
   id: string
   mrn: string // nomor rekam medis
@@ -28,6 +30,42 @@ export interface Diagnosis {
 
 export type VisitStage = 'doctor' | 'pharmacy' | 'cashier' | 'complete'
 
+export interface Vitals {
+  systolic?: string // tekanan darah sistolik (mmHg)
+  diastolic?: string // tekanan darah diastolik (mmHg)
+  temperature?: string // suhu (°C)
+  heartRate?: string // nadi (bpm)
+  respiratoryRate?: string // laju napas (x/menit)
+  weight?: string // berat badan (kg)
+  height?: string // tinggi badan (cm)
+}
+
+export type LabCategory = 'Laboratorium' | 'Radiologi'
+
+export interface LabTestDef {
+  id: string
+  name: string
+  category: LabCategory
+  price: number
+  loincCode?: string
+}
+
+export type LabOrderStatus = 'requested' | 'completed'
+
+export interface LabOrder {
+  id: string
+  testId: string
+  name: string
+  category: LabCategory
+  price: number
+  loincCode?: string
+  status: LabOrderStatus
+  result?: string
+  serviceRequestId?: string
+  createdAt: number
+  completedAt?: number
+}
+
 export interface Visit {
   id: string
   patientId: string
@@ -36,6 +74,9 @@ export interface Visit {
   encounterId?: string
   conditionId?: string
   diagnosis?: Diagnosis
+  vitals?: Vitals
+  clinicalNotes?: string
+  labOrders: LabOrder[]
   prescription: PrescriptionItem[]
   consultationFee: number
   createdAt: number
@@ -55,7 +96,7 @@ export interface Icd10 {
   display: string
 }
 
-export type FhirResourceType = 'OAuth2' | 'Patient' | 'Encounter' | 'Condition'
+export type FhirResourceType = 'OAuth2' | 'Patient' | 'Encounter' | 'Condition' | 'ServiceRequest'
 
 export interface FhirLog {
   id: string

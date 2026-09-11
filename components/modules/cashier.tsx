@@ -29,7 +29,8 @@ export function CashierModule() {
           {cashierQueue.map((v) => {
             const p = getPatient(v.patientId)
             const medTotal = v.prescription.reduce((s, i) => s + i.price * i.quantity, 0)
-            const total = v.consultationFee + medTotal
+            const labTotal = v.labOrders.reduce((s, o) => s + o.price, 0)
+            const total = v.consultationFee + medTotal + labTotal
             return (
               <li key={v.id} className="rounded-xl border border-border bg-card">
                 <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-3">
@@ -57,6 +58,16 @@ export function CashierModule() {
                       </span>
                       <span className="font-mono tabular-nums text-foreground">
                         {formatRupiah(i.price * i.quantity)}
+                      </span>
+                    </div>
+                  ))}
+                  {v.labOrders.map((o) => (
+                    <div key={o.id} className="flex items-center justify-between">
+                      <span className="text-muted-foreground">
+                        {o.name} <span className="text-xs">({o.category})</span>
+                      </span>
+                      <span className="font-mono tabular-nums text-foreground">
+                        {formatRupiah(o.price)}
                       </span>
                     </div>
                   ))}

@@ -1,4 +1,4 @@
-import type { Diagnosis, Patient, PrescriptionItem } from './types'
+import type { Diagnosis, LabOrder, Patient, PrescriptionItem } from './types'
 import { uid } from './format'
 
 /**
@@ -158,6 +158,46 @@ export function buildConditionResource(params: {
       display: params.patientName,
     },
     encounter: { reference: `Encounter/${params.encounterId}` },
+  }
+}
+
+export function buildServiceRequestResource(params: {
+  patientSatuSehatId: string
+  patientName: string
+  encounterId: string
+  order: LabOrder
+}) {
+  return {
+    resourceType: 'ServiceRequest',
+    status: 'active',
+    intent: 'order',
+    category: [
+      {
+        coding: [
+          {
+            system: 'http://snomed.info/sct',
+            code: params.order.category === 'Radiologi' ? '363679005' : '108252007',
+            display:
+              params.order.category === 'Radiologi'
+                ? 'Imaging'
+                : 'Laboratory procedure',
+          },
+        ],
+        text: params.order.category,
+      },
+    ],
+    code: {
+      coding: params.order.loincCode
+        ? [{ system: 'http://loinc.org', code: params.order.loincCode, display: params.order.name }]
+        : [{ text: params.order.name }],
+      text: params.order.name,
+    },
+    subject: {
+      reference: `Patient/${params.patientSatuSehatId}`,
+      display: params.patientName,
+    },
+    encounter: { reference: `Encounter/${params.encounterId}` },
+    authoredOn: new Date().toISOString(),
   }
 }
 

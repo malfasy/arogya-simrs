@@ -13,6 +13,7 @@ const toneByType: Record<FhirResourceType, 'primary' | 'success' | 'warning' | '
   Patient: 'primary',
   Encounter: 'success',
   Condition: 'muted',
+  ServiceRequest: 'primary',
 }
 
 function LogEntry({ log }: { log: FhirLog }) {
